@@ -1026,7 +1026,8 @@ app.put("/supplies/:id", async(req,res) => {
     );
     await client.query("COMMIT");
     return res.status(200).json({
-      message: "Supply updated successfully"
+      message: "Supply updated successfully",
+      transaction: result.rows[0]
 });
 
   }
@@ -1046,6 +1047,49 @@ app.put("/supplies/:id", async(req,res) => {
   }
 });
 
+app.put("/collections/:id", async(req,res) => {
+  try{
+    const id=req.params.id;
+    const {
+      amount_received,
+      notes,
+      payment_method
+    } = req.body;
+    if(amount_received <= 0){
+      return res.status(400).json({
+        error:"valid collection amount is required"
+      });
+    }
+    const result = await pool.query(
+      `select *from collections where id=$1`,
+      [id]
+    );
+    if(result.rows.length===0){
+      return res.status(404).json({
+        error:"collection record not found"
+      });
+    }
+    const updateResult= await pool.query(
+        `update collections set amount_received =$1, notes=$2,payment_method=$3 where id=$4 RETURNING *`,
+        [amount_received,
+         notes,
+         payment_method,
+          id
+        ]
+      );
+      return res.status(200).json({
+        message:"collection record updated successfully",
+        collection: updateResult.rows[0]
+      });
+
+  }
+  catch(error){
+    console.error(error);
+    res.status(500).json({
+      error:error.message
+    });
+  }
+});
 
 app.listen(5000, () => {
   console.log("Server running on port 5000");
