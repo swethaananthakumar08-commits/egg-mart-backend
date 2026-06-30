@@ -1172,6 +1172,185 @@ app.put("/retailer-purchases/:id", async(req,res) => {
   }
 });
 
+app.put("/retailer-tray/:id", async(req,res) => {
+  try{
+    const id=req.params.id;
+    const {
+      transaction_type,
+      tray_count,
+      notes
+    } = req.body;
+    //validate
+    if(!transaction_type || tray_count==null || tray_count <=0|| !["RECEIVED", "RETURN"].includes(transaction_type)){
+      return res.status(400).json({
+        error:"valid transaction_type and tray_count are required"
+      });
+    }
+    const result= await pool.query(
+      `select transaction_type,tray_count,notes from retailer_tray_transactions where id=$1`,
+      [id]
+    );
+    if(result.rows.length===0){
+      return res.status(404).json({
+        error:"retailer tray record not found"
+      });
+    }
+    //total_received
+    const receiveResult = await pool.query(
+      `select coalesce(SUM(tray_count),0) as total_receive from retailer_tray_transactions
+      where transaction_type='RECEIVED'`
+    );
+    //total_returned
+    const returnResult = await pool.query(
+      `select coalesce(SUM(tray_count),0) as total_return from retailer_tray_transactions
+      where transaction_type ='RETURN'`
+    );
+
+    //get the receive , return to calculate the pending 
+
+    const totalReceive = Number(receiveResult.rows[0].total_receive);
+
+    const totalReturn = Number(returnResult.rows[0].total_return);
+    //fetch old data
+    const oldType = result.rows[0].transaction_type;
+    const oldTrayCount = Number(result.rows[0].tray_count);
+    // get the copies of totals
+    let adjustedReceive = totalReceive;
+    let adjustedReturn = totalReturn;
+    //remove old effect
+    if(oldType==="RECEIVED"){
+      adjustedReceive = adjustedReceive - oldTrayCount;
+    }
+    if(oldType==="RETURN"){
+      adjustedReturn = adjustedReturn - oldTrayCount;
+    }
+    //apply new effect
+    if(transaction_type==="RECEIVED"){
+      adjustedReceive = adjustedReceive + tray_count;
+    }
+    if(transaction_type==="RETURN"){
+      adjustedReturn = adjustedReturn + tray_count;
+    }
+    //calculate pending
+    const totalPending = adjustedReceive - adjustedReturn;
+    if(totalPending < 0){
+      return res.status(400).json({
+        error:"insufficient amount of trays"
+      });
+    }
+    const updateResult = await pool.query(
+      `update retailer_tray_transactions set transaction_type=$1,tray_count=$2,notes=$3 where id=$4 RETURNING *`,
+      [transaction_type,
+        tray_count,
+        notes,
+        id
+      ]
+    );
+    return res.status(200).json({
+      message:"tray updated successfully",
+      retailer_tray:updateResult.rows[0]
+    });
+
+  }
+  catch(error){
+    console.log(error);
+    res.status(500).json({
+      error:error.message
+    });
+  }
+});
+
+app.put("/shop-tray/:id", async(req,res) => {
+  try{
+    const id=req.params.id;
+    const {
+      transaction_type,
+      tray_count,
+      notes
+    } = req.body;
+    //validate
+    if(!transaction_type || tray_count==null || tray_count <=0|| !["SENT", "RETURN"].includes(transaction_type)){
+      return res.status(400).json({
+        error:"valid transaction_type and tray_count are required"
+      });
+    }
+    const result= await pool.query(
+      `select shop_id,transaction_type,tray_count,notes from shop_tray_transactions where id=$1`,
+      [id]
+    );
+    if(result.rows.length===0){
+      return res.status(404).json({
+        error:"shop tray record not found"
+      });
+    }
+    const shopId = Number(result.rows[0].shop_id);
+    //total_sent
+    const sentResult = await pool.query(
+      `select coalesce(SUM(tray_count),0) as total_sent from shop_tray_transactions
+      where shop_id=$1 AND transaction_type='SENT'`,
+      [shopId]
+    );
+    //total_returned
+    const returnResult = await pool.query(
+      `select coalesce(SUM(tray_count),0) as total_return from shop_tray_transactions
+      where shop_id=$1 AND transaction_type ='RETURN'`,
+      [shopId]
+    );
+
+    //get the receive , return to calculate the pending 
+
+    const totalSent = Number(sentResult.rows[0].total_sent);
+
+    const totalReturn = Number(returnResult.rows[0].total_return);
+    //fetch old data
+    const oldType = result.rows[0].transaction_type;
+    const oldTrayCount = Number(result.rows[0].tray_count);
+    // get the copies of totals
+    let adjustedSent = totalSent;
+    let adjustedReturn = totalReturn;
+    //remove old effect
+    if(oldType==="SENT"){
+      adjustedSent = adjustedSent - oldTrayCount;
+    }
+    if(oldType==="RETURN"){
+      adjustedReturn = adjustedReturn - oldTrayCount;
+    }
+    //apply new effect
+    if(transaction_type==="SENT"){
+      adjustedSent = adjustedSent + tray_count;
+    }
+    if(transaction_type==="RETURN"){
+      adjustedReturn = adjustedReturn + tray_count;
+    }
+    //calculate pending
+    const totalPending = adjustedSent - adjustedReturn;
+    if(totalPending < 0){
+      return res.status(400).json({
+        error:"insufficient amount of trays"
+      });
+    }
+    const updateResult = await pool.query(
+      `update shop_tray_transactions set transaction_type=$1,tray_count=$2,notes=$3 where id=$4 RETURNING *`,
+      [transaction_type,
+        tray_count,
+        notes,
+        id
+      ]
+    );
+    return res.status(200).json({
+      message:"tray updated successfully",
+      shop_tray:updateResult.rows[0]
+    });
+
+  }
+  catch(error){
+    console.log(error);
+    res.status(500).json({
+      error:error.message
+    });
+  }
+});
+
 app.listen(5000, () => {
   console.log("Server running on port 5000");
 });
