@@ -1027,7 +1027,7 @@ app.put("/supplies/:id", async(req,res) => {
     await client.query("COMMIT");
     return res.status(200).json({
       message: "Supply updated successfully",
-      transaction: updateResult.rows[0]
+      purchase: updateResult.rows[0]
 });
 
   }
@@ -1348,6 +1348,302 @@ app.put("/shop-tray/:id", async(req,res) => {
     res.status(500).json({
       error:error.message
     });
+  }
+});
+
+app.delete("/collections/:id", async(req,res) => {
+  try{
+    const id=req.params.id;
+
+    const deleteResult = await pool.query(
+      `delete from collections where id=$1 RETURNING *`,
+      [id]
+    );
+    if(deleteResult.rows.length===0){
+      return res.status(404).json({
+        error:"collection record not found"
+      });
+    }
+ 
+      return res.status(200).json({
+        message:"collection record deleted successfully",
+        collection: deleteResult.rows[0]
+      });
+
+  }
+  catch(error){
+    console.error(error);
+    res.status(500).json({
+      error:error.message
+    });
+  }
+});
+
+app.delete("/retailer-tray/:id", async(req,res) => {
+  try{
+    const id=req.params.id;
+    
+    const result= await pool.query(
+      `select transaction_type,tray_count from retailer_tray_transactions where id=$1`,
+      [id]
+    );
+    if(result.rows.length===0){
+      return res.status(404).json({
+        error:"retailer tray record not found"
+      });
+    }
+    //total_received
+    const receiveResult = await pool.query(
+      `select coalesce(SUM(tray_count),0) as total_receive from retailer_tray_transactions
+      where transaction_type='RECEIVED'`
+    );
+    //total_returned
+    const returnResult = await pool.query(
+      `select coalesce(SUM(tray_count),0) as total_return from retailer_tray_transactions
+      where transaction_type ='RETURN'`
+    );
+
+    //get the receive , return to calculate the pending 
+
+    const totalReceive = Number(receiveResult.rows[0].total_receive);
+
+    const totalReturn = Number(returnResult.rows[0].total_return);
+    //fetch old data
+    const oldType = result.rows[0].transaction_type;
+    const oldTrayCount = Number(result.rows[0].tray_count);
+    // get the copies of totals
+    let adjustedReceive = totalReceive;
+    let adjustedReturn = totalReturn;
+    //remove old effect
+    if(oldType==="RECEIVED"){
+      adjustedReceive = adjustedReceive - oldTrayCount;
+    }
+    if(oldType==="RETURN"){
+      adjustedReturn = adjustedReturn - oldTrayCount;
+    }
+    
+    //calculate pending
+    const totalPending = adjustedReceive - adjustedReturn;
+    if(totalPending < 0){
+      return res.status(400).json({
+        error:"Cannot delete transaction. Returned trays would exceed received trays."
+      });
+    }
+    const deleteResult = await pool.query(
+      `delete from retailer_tray_transactions where id=$1 RETURNING *`,
+      [id] 
+    );
+    return res.status(200).json({
+      message:"tray deleted successfully",
+      retailer_tray:deleteResult.rows[0]
+    });
+
+  }
+  catch(error){
+    console.log(error);
+    res.status(500).json({
+      error:error.message
+    });
+  }
+});
+
+app.delete("/shop-tray/:id", async(req,res) => {
+  try{
+    const id=req.params.id;
+    
+    const result= await pool.query(
+      `select shop_id,transaction_type,tray_count from shop_tray_transactions where id=$1`,
+      [id]
+    );
+    if(result.rows.length===0){
+      return res.status(404).json({
+        error:"shop tray record not found"
+      });
+    }
+    const shopId = Number(result.rows[0].shop_id);
+    //total_sent
+    const sentResult = await pool.query(
+      `select coalesce(SUM(tray_count),0) as total_sent from shop_tray_transactions
+      where shop_id=$1 AND transaction_type='SENT'`,
+      [shopId]
+    );
+    //total_returned
+    const returnResult = await pool.query(
+      `select coalesce(SUM(tray_count),0) as total_return from shop_tray_transactions
+      where shop_id=$1 AND transaction_type ='RETURN'`,
+      [shopId]
+    );
+
+    //get the receive , return to calculate the pending 
+
+    const totalSent = Number(sentResult.rows[0].total_sent);
+
+    const totalReturn = Number(returnResult.rows[0].total_return);
+    //fetch old data
+    const oldType = result.rows[0].transaction_type;
+    const oldTrayCount = Number(result.rows[0].tray_count);
+    // get the copies of totals
+    let adjustedSent = totalSent;
+    let adjustedReturn = totalReturn;
+    //remove old effect
+    if(oldType==="SENT"){
+      adjustedSent = adjustedSent - oldTrayCount;
+    }
+    if(oldType==="RETURN"){
+      adjustedReturn = adjustedReturn - oldTrayCount;
+    }
+    
+    //calculate pending
+    const totalPending = adjustedSent - adjustedReturn;
+    if(totalPending < 0){
+      return res.status(400).json({
+        error:"Cannot delete transaction. Returned trays would exceed received trays."
+      });
+    }
+    const deleteResult = await pool.query(
+      `delete from shop_tray_transactions where id=$1 RETURNING *`,
+      [id]
+    );
+    return res.status(200).json({
+      message:"tray deleted successfully",
+      shop_tray:deleteResult.rows[0]
+    });
+
+  }
+  catch(error){
+    console.log(error);
+    res.status(500).json({
+      error:error.message
+    });
+  }
+});
+
+app.delete("/supplies/:id", async(req,res) => {
+  let client;
+  try{
+    //get supply id
+    const id = req.params.id;
+  
+    //fetch exisiting supply records
+    const result = await pool.query(
+      `select *from supplies where id=$1`,
+      [id]
+    );
+    //check for valid supply_id
+    if(result.rows.length===0){
+      return res.status(404).json({
+        error:"supply record not found"
+      });
+    }
+    const oldTrayCount = Number(result.rows[0].tray_count);
+
+    const stockResult = await pool.query(
+      `select current_stock from stock_balance`
+    );
+
+    const currentStock = Number(stockResult.rows[0].current_stock);
+
+    const newStock = currentStock + oldTrayCount;
+   
+    //transaction
+    client = await pool.connect();
+    await client.query("BEGIN");
+    await client.query(
+      `update stock_balance set current_stock=$1 ,updated_at =CURRENT_TIMESTAMP`,
+      [newStock]
+    );
+    const deleteResult = await client.query(
+      `delete from supplies where id=$1 RETURNING *`,
+      [id]
+    );
+    
+    await client.query("COMMIT");
+    return res.status(200).json({
+      message: "Supply deleted successfully",
+      supply: deleteResult.rows[0]
+});
+
+  }
+  catch(error){
+    console.error(error);
+    if(client){
+      await client.query("ROLLBACK");
+    }
+    res.status(500).json({
+      error:error.message
+    });
+  }
+  finally{
+    if(client){
+      client.release();
+    }
+  }
+});
+
+app.delete("/retailer-purchases/:id", async(req,res) => {
+  let client;
+  try{
+    //get purchase id
+    const id = req.params.id;
+    
+    //fetch exisiting purchase records
+    const result = await pool.query(
+      `select *from retailer_purchases where id=$1`,
+      [id]
+    );
+    //check for valid supply_id
+    if(result.rows.length===0){
+      return res.status(404).json({
+        error:"purchase record not found"
+      });
+    }
+    const oldTrayCount = Number(result.rows[0].tray_count);
+    
+    const stockResult = await pool.query(
+      `select current_stock from stock_balance`
+    );
+
+    const currentStock = Number(stockResult.rows[0].current_stock);
+
+    const newStock = currentStock - oldTrayCount;
+    if(newStock < 0){
+      return res.status(400).json({
+        error:"insufficient stock for delete"
+      });
+    }
+   
+    //transaction
+    client = await pool.connect();
+    await client.query("BEGIN");
+    await client.query(
+      `update stock_balance set current_stock=$1 ,updated_at =CURRENT_TIMESTAMP`,
+      [newStock]
+    );
+    const deleteResult = await client.query(
+      `delete from retailer_purchases where id=$1 RETURNING *`,
+      [id]
+    );
+    
+    await client.query("COMMIT");
+    return res.status(200).json({
+      message: "purchase deleted successfully",
+      purchase: deleteResult.rows[0]
+});
+
+  }
+  catch(error){
+    console.error(error);
+    if(client){
+      await client.query("ROLLBACK");
+    }
+    res.status(500).json({
+      error:error.message
+    });
+  }
+  finally{
+    if(client){
+      client.release();
+    }
   }
 });
 
