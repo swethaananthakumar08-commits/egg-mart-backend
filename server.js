@@ -1,102 +1,15 @@
 const express = require("express");
-const pool = require("./db");
-
+const pool = require("./config/db");
+const shopRoutes = require("./routes/shops");
+const supplyRoutes = require("./routes/supplies");
 const app = express();
 
 app.use(express.json());
+app.use("/", shopRoutes);
+app.use("/", supplyRoutes);
 
 app.get("/", (req, res) => {
   res.send("Egg Mart Backend Running 🚀");
-});
-
-app.get("/shops", async (req, res) => {
-  try {
-    const result = await pool.query(
-      "SELECT * FROM shops ORDER BY id"
-    );
-
-    res.json(result.rows);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      error: "Database Error"
-    });
-  }
-});
-
-app.get("/shops/:id/timeline", async (req, res) => {
-  try {
-
-    const shopId = req.params.id;
-
-    const shopResult = await pool.query(
-      `
-      SELECT id, shop_name
-      FROM shops
-      WHERE id = $1
-      `,
-      [shopId]
-    );
-
-    if (shopResult.rows.length === 0) {
-      return res.status(404).json({
-        error: "Shop not found"
-      });
-    }
-
-    const timelineResult = await pool.query(
-      `
-      SELECT
-          supplied_at AS activity_time,
-          'SUPPLY' AS activity_type,
-          tray_count,
-          total_amount,
-          NULL AS notes
-      FROM supplies
-      WHERE shop_id = $1
-
-      UNION ALL
-
-      SELECT
-          collected_at AS activity_time,
-          'COLLECTION' AS activity_type,
-          NULL AS tray_count,
-          amount_received AS total_amount,
-          notes
-      FROM collections
-      WHERE shop_id = $1
-
-      UNION ALL
-
-      SELECT
-          transaction_time AS activity_time,
-          transaction_type AS activity_type,
-          tray_count,
-          NULL AS total_amount,
-          notes
-      FROM shop_tray_transactions
-      WHERE shop_id = $1
-
-      ORDER BY activity_time DESC
-      `,
-      [shopId]
-    );
-
-    res.json({
-      shop_id: shopId,
-      shop_name: shopResult.rows[0].shop_name,
-      timeline: timelineResult.rows
-    });
-
-  } catch (error) {
-
-    console.error(error);
-
-    res.status(500).json({
-      error: error.message
-    });
-
-  }
 });
 
 app.post("/shops", async (req, res) => {
@@ -131,97 +44,6 @@ app.post("/shops", async (req, res) => {
         error: error.message
     });
 }
-});
-
-app.post("/supplies", async (req, res) => {
-  let client;
-  try {
-
-    const {
-      shop_id,
-      tray_count,
-      rate_per_tray
-    } = req.body;
-
-    if (!shop_id || !tray_count || !rate_per_tray) {
-      return res.status(400).json({
-        error: "shop_id, tray_count and rate_per_tray are required"
-      });
-    }
-    client = await pool.connect();
-    await client.query("BEGIN");
-
-    const total_amount = tray_count * rate_per_tray;
-
-    const stockResult = await client.query(
-      `select current_stock from stock_balance `
-    );
-
-    const currentStock = Number(stockResult.rows[0].current_stock);
-
-    if(tray_count > currentStock){
-      return res.status(400).json({
-      error: `Only ${currentStock} trays available in stock.`
-});
-    }
-
-    const result = await client.query(
-      `
-      INSERT INTO supplies
-      (
-        shop_id,
-        tray_count,
-        rate_per_tray,
-        total_amount
-      )
-      VALUES
-      (
-        $1,
-        $2,
-        $3,
-        $4
-      )
-      RETURNING *
-      `,
-      [
-        shop_id,
-        tray_count,
-        rate_per_tray,
-        total_amount
-      ]
-    );
-
-    await client.query(`
-  UPDATE stock_balance
-  SET current_stock = current_stock - $1,
-      updated_at = CURRENT_TIMESTAMP
-`,
-[tray_count]);
-
-    await client.query("COMMIT");
-
-    res.status(201).json({
-      message: "Supply recorded successfully",
-      supply: result.rows[0]
-    });
-
-  } catch (error) {
-    if(client){
-      await client.query("ROLLBACK");
-    }
-
-    console.error(error);
-
-    res.status(500).json({
-      error: error.message
-    });
-
-  }
-  finally{
-    if(client){
-      client.release();
-    }
-  }
 });
 
 app.post("/collections", async (req, res) => {
@@ -269,72 +91,6 @@ app.post("/collections", async (req, res) => {
     res.status(201).json({
       message: "Collection recorded successfully",
       collection: result.rows[0]
-    });
-
-  } catch (error) {
-
-    console.error(error);
-
-    res.status(500).json({
-      error: error.message
-    });
-
-  }
-});
-
-app.get("/shop-summary/:id", async (req, res) => {
-  try {
-
-    const shopId = req.params.id;
-
-    const shopResult = await pool.query(
-      `
-      SELECT id, shop_name
-      FROM shops
-      WHERE id = $1
-      `,
-      [shopId]
-    );
-
-    if (shopResult.rows.length === 0) {
-      return res.status(404).json({
-        error: "Shop not found"
-      });
-    }
-
-    const supplyResult = await pool.query(
-      `
-      SELECT COALESCE(SUM(total_amount), 0) AS total_supply
-      FROM supplies
-      WHERE shop_id = $1
-      `,
-      [shopId]
-    );
-
-    const collectionResult = await pool.query(
-      `
-      SELECT COALESCE(SUM(amount_received), 0) AS total_collection
-      FROM collections
-      WHERE shop_id = $1
-      `,
-      [shopId]
-    );
-
-    const totalSupply =
-      Number(supplyResult.rows[0].total_supply);
-
-    const totalCollection =
-      Number(collectionResult.rows[0].total_collection);
-
-    const pendingAmount =
-      totalSupply - totalCollection;
-
-    res.json({
-      shop_id: shopId,
-      shop_name: shopResult.rows[0].shop_name,
-      total_supply: totalSupply,
-      total_collection: totalCollection,
-      pending_amount: pendingAmount
     });
 
   } catch (error) {
@@ -1041,87 +797,6 @@ res.json({
 
 });
 
-app.put("/supplies/:id", async(req,res) => {
-  let client;
-  try{
-    //get supply id
-    const id = req.params.id;
-    //get data
-    const{
-      tray_count,
-      rate_per_tray
-    } = req.body;
-    //validate
-    if(tray_count <= 0 || rate_per_tray <= 0){
-      return res.status(400).json({
-            error:"valid tray_count and rate_per_tray are required"
-      });
-    }
-    //fetch exisiting supply records
-    const result = await pool.query(
-      `select *from supplies where id=$1`,
-      [id]
-    );
-    //check for valid supply_id
-    if(result.rows.length===0){
-      return res.status(404).json({
-        error:"supply record not found"
-      });
-    }
-    const oldTrayCount = Number(result.rows[0].tray_count);
-    
-    const difference = oldTrayCount - tray_count;
-
-    const stockResult = await pool.query(
-      `select current_stock from stock_balance`
-    );
-
-    const currentStock = Number(stockResult.rows[0].current_stock);
-
-    const newStock = currentStock + difference;
-    if(newStock < 0){
-      return res.status(400).json({
-        error:"insufficient stock for update"
-      });
-    }
-    const newTotalAmount = tray_count * rate_per_tray;
-    //transaction
-    client = await pool.connect();
-    await client.query("BEGIN");
-    const updateResult = await client.query(
-      `update supplies set tray_count=$1, rate_per_tray=$2, total_amount=$3 where id=$4 RETURNING *`,
-      [tray_count,
-      rate_per_tray,
-      newTotalAmount,
-      id]
-    );
-    await client.query(
-      `update stock_balance set current_stock=$1 ,updated_at =CURRENT_TIMESTAMP`,
-      [newStock]
-    );
-    await client.query("COMMIT");
-    return res.status(200).json({
-      message: "Supply updated successfully",
-      purchase: updateResult.rows[0]
-});
-
-  }
-  catch(error){
-    console.error(error);
-    if(client){
-      await client.query("ROLLBACK");
-    }
-    res.status(500).json({
-      error:error.message
-    });
-  }
-  finally{
-    if(client){
-      client.release();
-    }
-  }
-});
-
 app.put("/collections/:id", async(req,res) => {
   try{
     const id=req.params.id;
@@ -1593,68 +1268,6 @@ app.delete("/shop-tray/:id", async(req,res) => {
   }
 });
 
-app.delete("/supplies/:id", async(req,res) => {
-  let client;
-  try{
-    //get supply id
-    const id = req.params.id;
-  
-    //fetch exisiting supply records
-    const result = await pool.query(
-      `select *from supplies where id=$1`,
-      [id]
-    );
-    //check for valid supply_id
-    if(result.rows.length===0){
-      return res.status(404).json({
-        error:"supply record not found"
-      });
-    }
-    const oldTrayCount = Number(result.rows[0].tray_count);
-
-    const stockResult = await pool.query(
-      `select current_stock from stock_balance`
-    );
-
-    const currentStock = Number(stockResult.rows[0].current_stock);
-
-    const newStock = currentStock + oldTrayCount;
-   
-    //transaction
-    client = await pool.connect();
-    await client.query("BEGIN");
-    await client.query(
-      `update stock_balance set current_stock=$1 ,updated_at =CURRENT_TIMESTAMP`,
-      [newStock]
-    );
-    const deleteResult = await client.query(
-      `delete from supplies where id=$1 RETURNING *`,
-      [id]
-    );
-    
-    await client.query("COMMIT");
-    return res.status(200).json({
-      message: "Supply deleted successfully",
-      supply: deleteResult.rows[0]
-});
-
-  }
-  catch(error){
-    console.error(error);
-    if(client){
-      await client.query("ROLLBACK");
-    }
-    res.status(500).json({
-      error:error.message
-    });
-  }
-  finally{
-    if(client){
-      client.release();
-    }
-  }
-});
-
 app.delete("/retailer-purchases/:id", async(req,res) => {
   let client;
   try{
@@ -1721,7 +1334,7 @@ app.delete("/retailer-purchases/:id", async(req,res) => {
     }
   }
 });
-
+app.use("/", shopRoutes);
 app.listen(5000, () => {
   console.log("Server running on port 5000");
 });
