@@ -24,6 +24,81 @@ app.get("/shops", async (req, res) => {
   }
 });
 
+app.get("/shops/:id/timeline", async (req, res) => {
+  try {
+
+    const shopId = req.params.id;
+
+    const shopResult = await pool.query(
+      `
+      SELECT id, shop_name
+      FROM shops
+      WHERE id = $1
+      `,
+      [shopId]
+    );
+
+    if (shopResult.rows.length === 0) {
+      return res.status(404).json({
+        error: "Shop not found"
+      });
+    }
+
+    const timelineResult = await pool.query(
+      `
+      SELECT
+          supplied_at AS activity_time,
+          'SUPPLY' AS activity_type,
+          tray_count,
+          total_amount,
+          NULL AS notes
+      FROM supplies
+      WHERE shop_id = $1
+
+      UNION ALL
+
+      SELECT
+          collected_at AS activity_time,
+          'COLLECTION' AS activity_type,
+          NULL AS tray_count,
+          amount_received AS total_amount,
+          notes
+      FROM collections
+      WHERE shop_id = $1
+
+      UNION ALL
+
+      SELECT
+          transaction_time AS activity_time,
+          transaction_type AS activity_type,
+          tray_count,
+          NULL AS total_amount,
+          notes
+      FROM shop_tray_transactions
+      WHERE shop_id = $1
+
+      ORDER BY activity_time DESC
+      `,
+      [shopId]
+    );
+
+    res.json({
+      shop_id: shopId,
+      shop_name: shopResult.rows[0].shop_name,
+      timeline: timelineResult.rows
+    });
+
+  } catch (error) {
+
+    console.error(error);
+
+    res.status(500).json({
+      error: error.message
+    });
+
+  }
+});
+
 app.post("/shops", async (req, res) => {
   try {
 
