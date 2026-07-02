@@ -155,8 +155,204 @@ const getShopTimeLine= async (req, res) => {
   }
 };
 
+const createShops = async (req, res) => {
+  try {
+
+    const {
+      shop_name,
+      owner_name,
+      phone,
+      area
+    } = req.body;
+
+    const result = await pool.query(
+      `
+      INSERT INTO shops
+      (shop_name, owner_name, phone, area)
+      VALUES ($1, $2, $3, $4)
+      RETURNING *
+      `,
+      [shop_name, owner_name, phone, area]
+    );
+
+    res.status(201).json({
+      message: "Shop added successfully",
+      shop: result.rows[0]
+    });
+
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+        error: error.message
+    });
+}
+};
+
+const getShopBalance = async (req, res) => {
+  try {
+
+    const result = await pool.query(`
+      SELECT
+          s.id,
+          s.shop_name,
+
+          (
+            SELECT COALESCE(SUM(sp.total_amount), 0)
+            FROM supplies sp
+            WHERE sp.shop_id = s.id
+          ) AS total_supply,
+
+          (
+            SELECT COALESCE(SUM(c.amount_received), 0)
+            FROM collections c
+            WHERE c.shop_id = s.id
+          ) AS total_collection
+
+      FROM shops s
+
+      ORDER BY s.shop_name;
+    `);
+
+    const data = result.rows.map(shop => {
+
+      const totalSupply =
+        Number(shop.total_supply);
+
+      const totalCollection =
+        Number(shop.total_collection);
+
+      return {
+        shop_id: shop.id,
+        shop_name: shop.shop_name,
+        total_supply: totalSupply,
+        total_collection: totalCollection,
+        pending_amount:
+          totalSupply - totalCollection
+      };
+
+    });
+
+    res.json(data);
+
+  } catch (error) {
+
+    console.error(error);
+
+    res.status(500).json({
+      error: error.message
+    });
+
+  }
+};
+
+const getShopTraySummary = async (req, res) => {
+
+    try {
+
+        const { shopId } = req.params;
+
+        const shopResult = await pool.query(
+        `
+        SELECT
+            id,
+            shop_name
+        FROM shops
+        WHERE id=$1
+        `,
+        [shopId]
+        );
+
+        const sentResult = await pool.query(
+`
+SELECT
+COALESCE(SUM(tray_count),0) AS total_sent
+FROM shop_tray_transactions
+WHERE shop_id=$1
+AND transaction_type='SENT'
+`,
+[shopId]
+);
+
+const returnResult = await pool.query(
+`
+SELECT
+COALESCE(SUM(tray_count),0) AS total_returned
+FROM shop_tray_transactions
+WHERE shop_id=$1
+AND transaction_type='RETURN'
+`,
+[shopId]
+);
+
+const totalSent =
+Number(sentResult.rows[0].total_sent);
+
+const totalReturned =
+Number(returnResult.rows[0].total_returned);
+
+const trayDue =
+totalSent-totalReturned;
+
+let status;
+let status_color;
+
+if(trayDue===0){
+
+    status="ALL TRAYS RETURNED";
+
+    status_color="green";
+
+}
+else{
+
+    status=`RETURN ${trayDue} TRAYS`;
+
+    status_color="red";
+
+}
+
+res.json({
+
+    shop_id:
+    shopResult.rows[0].id,
+
+    shop_name:
+    shopResult.rows[0].shop_name,
+
+    total_sent:
+    totalSent,
+
+    total_returned:
+    totalReturned,
+
+    tray_due:
+    trayDue,
+
+    status,
+
+    status_color
+
+});
+
+    }
+    catch(error){
+
+        console.error(error);
+
+        res.status(500).json({
+            error:error.message
+        });
+
+    }
+
+};
+
 module.exports = {
   getShops,
   getShopSummary,
-  getShopTimeLine
+  getShopTimeLine,
+  createShops,
+  getShopBalance,
+  getShopTraySummary
 };

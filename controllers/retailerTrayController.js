@@ -272,8 +272,77 @@ const deleteRetailerTray = async(req,res) => {
   }
 };
 
+const getRetailerTraySummary = async(req,res) => {
+  try{
+    //total_received
+    const receiveResult = await pool.query(
+      `select coalesce(SUM(tray_count),0) as total_receive from retailer_tray_transactions
+      where transaction_type='RECEIVED'`
+    );
+    //total_returned
+    const returnResult = await pool.query(
+      `select coalesce(SUM(tray_count),0) as total_return from retailer_tray_transactions
+      where transaction_type ='RETURN'`
+    );
+
+    //get the receive , return to calculate the pending 
+
+    const totalReceive = Number(receiveResult.rows[0].total_receive);
+
+    const totalReturn = Number(returnResult.rows[0].total_return);
+
+    const trayDue = totalReceive - totalReturn;
+
+    //for status 
+    let status;
+    let status_color;
+
+    if(trayDue===0){
+
+    status="ALL TRAYS RETURNED";
+
+    status_color="green";
+
+}
+else{
+
+    status=`RETURN ${trayDue} TRAYS`;
+
+    status_color="red";
+
+}
+
+res.json({
+    total_received:
+    totalReceive,
+
+    total_returned:
+    totalReturn,
+
+    tray_due:
+    trayDue,
+
+    status,
+
+    status_color
+});
+
+
+  }
+
+  catch(error){
+    console.error(error);
+    res.status(500).json({
+      error:error.message
+    });
+
+  }
+
+};
+
 module.exports = {
    createRetailerTray,
    updateRetailerTray,
-   deleteRetailerTray
+   deleteRetailerTray,
+   getRetailerTraySummary
 };

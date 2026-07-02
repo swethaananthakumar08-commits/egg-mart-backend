@@ -5,7 +5,8 @@ const router = express.Router();
 const {
   createRetailerTray,
   updateRetailerTray,
-  deleteRetailerTray
+  deleteRetailerTray,
+  getRetailerTraySummary
 } = require("../controllers/retailerTrayController");
 
 router.post(
@@ -21,5 +22,10 @@ router.put(
 router.delete(
   "/retailer-tray/:id",
   deleteRetailerTray
+);
+
+router.get(
+   "/retailer-tray-summary",
+   getRetailerTraySummary
 );
 module.exports = router;
