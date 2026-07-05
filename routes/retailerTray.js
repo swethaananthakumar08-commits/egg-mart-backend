@@ -3,11 +3,17 @@ const express = require("express");
 const router = express.Router();
 
 const {
+  getRetailerTray,
   createRetailerTray,
   updateRetailerTray,
   deleteRetailerTray,
   getRetailerTraySummary
 } = require("../controllers/retailerTrayController");
+
+router.get(
+  "/retailer-tray",
+  getRetailerTray
+);
 
 router.post(
   "/retailer-tray",

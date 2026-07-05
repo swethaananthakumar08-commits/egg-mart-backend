@@ -3,10 +3,16 @@ const express = require("express");
 const router = express.Router();
 
 const {
+   getRetailerPurchases,
    createRetailerPurchase,
    updateRetailerPurchase,
    deleteRetailerPurchase
 } = require("../controllers/retailerPurchasesController");
+
+router.get(
+  "/retailer-purchases",
+  getRetailerPurchases
+);
 
 router.post(
   "/retailer-purchases",

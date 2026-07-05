@@ -1,5 +1,36 @@
 const pool = require("../config/db");
 
+const getShopTray = async (req, res) => {
+  try {
+
+    const result = await pool.query(`
+      SELECT
+        st.id,
+        st.shop_id,
+        s.shop_name,
+        st.transaction_type,
+        st.tray_count,
+        st.notes,
+        st.created_at
+      FROM shop_tray_transactions st
+      JOIN shops s
+      ON st.shop_id = s.id
+      ORDER BY st.created_at DESC
+    `);
+
+    res.json(result.rows);
+
+  } catch (error) {
+
+    console.error(error);
+
+    res.status(500).json({
+      error: error.message
+    });
+
+  }
+};
+
 const createShopTray = async (req, res) => {
 
     try {
@@ -317,6 +348,7 @@ const deleteShopTray = async(req,res) => {
 };
 
 module.exports = {
+   getShopTray,
    createShopTray,
    updateShopTray,
    deleteShopTray

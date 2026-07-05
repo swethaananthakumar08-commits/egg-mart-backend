@@ -1,5 +1,32 @@
 const pool = require("../config/db");
 
+const getRetailerTray = async (req, res) => {
+  try {
+
+    const result = await pool.query(`
+      SELECT
+        id,
+        transaction_type,
+        tray_count,
+        notes,
+        created_at
+      FROM retailer_tray_transactions
+      ORDER BY created_at DESC
+    `);
+
+    res.json(result.rows);
+
+  } catch (error) {
+
+    console.error(error);
+
+    res.status(500).json({
+      error: error.message
+    });
+
+  }
+};
+
 const createRetailerTray = async(req,res) => {
   try{
     const{
@@ -341,6 +368,7 @@ res.json({
 };
 
 module.exports = {
+   getRetailerTray,
    createRetailerTray,
    updateRetailerTray,
    deleteRetailerTray,

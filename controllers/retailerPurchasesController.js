@@ -1,5 +1,32 @@
 const pool = require("../config/db");
 
+const getRetailerPurchases = async (req, res) => {
+  try {
+
+    const result = await pool.query(`
+      SELECT
+        id,
+        tray_count,
+        rate_per_tray,
+        total_amount,
+        purchased_at
+      FROM retailer_purchases
+      ORDER BY purchased_at DESC
+    `);
+
+    res.json(result.rows);
+
+  } catch (error) {
+
+    console.error(error);
+
+    res.status(500).json({
+      error: error.message
+    });
+
+  }
+};
+
 const createRetailerPurchase = async (req, res) => {
   let client;
   try {
@@ -158,7 +185,6 @@ const updateRetailerPurchase = async(req,res) => {
   }
 };
 
-
 const deleteRetailerPurchase = async(req,res) => {
   let client;
   try{
@@ -227,6 +253,7 @@ const deleteRetailerPurchase = async(req,res) => {
 };
 
 module.exports = {
+  getRetailerPurchases,
    createRetailerPurchase,
    updateRetailerPurchase,
    deleteRetailerPurchase

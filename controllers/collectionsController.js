@@ -1,5 +1,36 @@
 const pool = require("../config/db");
 
+const getCollections = async (req, res) => {
+  try {
+
+    const result = await pool.query(`
+      SELECT
+        c.id,
+        c.shop_id,
+        s.shop_name,
+        c.amount_received,
+        c.payment_method,
+        c.notes,
+        c.collected_at
+      FROM collections c
+      JOIN shops s
+      ON c.shop_id = s.id
+      ORDER BY c.collected_at DESC
+    `);
+
+    res.json(result.rows);
+
+  } catch (error) {
+
+    console.error(error);
+
+    res.status(500).json({
+      error: error.message
+    });
+
+  }
+};
+
 const createCollection = async (req, res) => {
   try {
 
@@ -131,6 +162,7 @@ const deleteCollection = async(req,res) => {
 };
 
 module.exports = {
+   getCollections,
    createCollection,
    updateCollection,
    deleteCollection

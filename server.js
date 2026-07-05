@@ -1,4 +1,5 @@
 const express = require("express");
+const cors = require("cors");
 const pool = require("./config/db");
 const shopRoutes = require("./routes/shops");
 const supplyRoutes = require("./routes/supplies");
@@ -10,6 +11,7 @@ const dashboardRoutes =require("./routes/dashboard");
 
 const app = express();
 
+app.use(cors());
 app.use(express.json());
 app.use("/", shopRoutes);
 app.use("/", supplyRoutes);

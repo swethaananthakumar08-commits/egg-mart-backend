@@ -1,5 +1,36 @@
 const pool = require("../config/db");
 
+const getSupplies = async (req, res) => {
+  try {
+
+    const result = await pool.query(`
+      SELECT
+        s.id,
+        s.shop_id,
+        sh.shop_name,
+        s.tray_count,
+        s.rate_per_tray,
+        s.total_amount,
+        s.supplied_at
+      FROM supplies s
+      JOIN shops sh
+      ON s.shop_id = sh.id
+      ORDER BY s.supplied_at DESC
+    `);
+
+    res.json(result.rows);
+
+  } catch (error) {
+
+    console.error(error);
+
+    res.status(500).json({
+      error: error.message
+    });
+
+  }
+};
+
 const createSupply = async (req, res) => {
   let client;
   try {
@@ -235,6 +266,7 @@ const deleteSupply = async(req,res) => {
 };
 
 module.exports = {
+  getSupplies,
    createSupply,
    updateSupply,
    deleteSupply
