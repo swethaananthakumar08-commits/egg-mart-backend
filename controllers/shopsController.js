@@ -33,40 +33,84 @@ const getShopSummary = async (req, res) => {
         error: "Shop not found"
       });
     }
-
-    const supplyResult = await pool.query(
-      `
-      SELECT COALESCE(SUM(total_amount), 0) AS total_supply
+    //previous total Supply
+    const previousSupplyResult = await pool.query(`
+      SELECT COALESCE(SUM(total_amount),0) AS previous_supply
       FROM supplies
-      WHERE shop_id = $1
+      where shop_id=$1 AND DATE(supplied_at) < CURRENT_DATE 
       `,
       [shopId]
     );
 
-    const collectionResult = await pool.query(
-      `
-      SELECT COALESCE(SUM(amount_received), 0) AS total_collection
+    //previous total collection
+    const previousCollectionResult = await pool.query(`
+      SELECT COALESCE(SUM(amount_received),0) AS previous_collection
       FROM collections
-      WHERE shop_id = $1
-      `,
-      [shopId]
+      WHERE shop_id=$1
+      AND DATE(collected_at) < CURRENT_DATE
+    `,
+    [shopId]
     );
 
-    const totalSupply =
-      Number(supplyResult.rows[0].total_supply);
+    //today supply
+    const todaySupplyResult = await pool.query(
+      `SELECT COALESCE(SUM(total_amount),0) AS today_supply
+      FROM supplies
+      WHERE shop_id=$1
+      AND DATE(supplied_at) = CURRENT_DATE
+    `,
+    [shopId]
+    );
 
-    const totalCollection =
-      Number(collectionResult.rows[0].total_collection);
+    //today collection
+    const todayCollectionResult = await pool.query(
+      `SELECT COALESCE(SUM(amount_received),0) AS today_collection
+      FROM collections
+      WHERE shop_id=$1
+      AND DATE(collected_at) = CURRENT_DATE
+    `,
+    [shopId]
+    );
 
-    const pendingAmount =
-      totalSupply - totalCollection;
+    const previousPending =
+      Number(previousSupplyResult.rows[0].previous_supply)
+      -
+      Number(previousCollectionResult.rows[0].previous_collection);
+
+    const todaySupply = Number(todaySupplyResult.rows[0].today_supply);
+
+    const todayCollection =
+      Number(todayCollectionResult.rows[0].today_collection);
+
+    const currentPending = previousPending + todaySupply - todayCollection;
+
+    let status;
+    let status_color;
+
+    if(currentPending===0){
+
+      status="NO PENDING AMOUNT";
+
+      status_color="green";
+
+    }
+    else{
+
+      status=`COLLECT ${currentPending} `;
+
+      status_color="red";
+
+    }
 
     res.json({
       shop_id: shopId,
       shop_name: shopResult.rows[0].shop_name,
-      total_supply: totalSupply,
-      total_collection: totalCollection,
-      pending_amount: pendingAmount
+      previous_pending: previousPending,
+      today_supply: todaySupply,
+      today_collection: todayCollection,
+      current_pending: currentPending,
+      status,
+      status_color
     });
 
   } catch (error) {
@@ -248,103 +292,196 @@ const getShopBalance = async (req, res) => {
 
 const getShopTraySummary = async (req, res) => {
 
-    try {
+  try {
 
-        const { shopId } = req.params;
+    const { shopId } = req.params;
 
-        const shopResult = await pool.query(
+    const shopResult = await pool.query(
+      `
+      SELECT id, shop_name
+      FROM shops
+      WHERE id=$1
+      `,
+      [shopId]
+    );
+
+    if(shopResult.rows.length===0){
+
+      return res.status(404).json({
+        error:"Shop not found"
+      });
+
+    }
+
+    // ==========================
+    // PREVIOUS SENT
+    // ==========================
+
+    const previousSentResult =
+      await pool.query(
         `
         SELECT
-            id,
-            shop_name
-        FROM shops
-        WHERE id=$1
+        COALESCE(SUM(tray_count),0)
+        AS previous_sent
+
+        FROM shop_tray_transactions
+
+        WHERE shop_id=$1
+
+        AND transaction_type='SENT'
+
+        AND DATE(created_at)<CURRENT_DATE
         `,
         [shopId]
-        );
+      );
 
-        const sentResult = await pool.query(
-`
-SELECT
-COALESCE(SUM(tray_count),0) AS total_sent
-FROM shop_tray_transactions
-WHERE shop_id=$1
-AND transaction_type='SENT'
-`,
-[shopId]
-);
+    // ==========================
+    // PREVIOUS RETURNED
+    // ==========================
 
-const returnResult = await pool.query(
-`
-SELECT
-COALESCE(SUM(tray_count),0) AS total_returned
-FROM shop_tray_transactions
-WHERE shop_id=$1
-AND transaction_type='RETURN'
-`,
-[shopId]
-);
+    const previousReturnResult =
+      await pool.query(
+        `
+        SELECT
+        COALESCE(SUM(tray_count),0)
+        AS previous_return
 
-const totalSent =
-Number(sentResult.rows[0].total_sent);
+        FROM shop_tray_transactions
 
-const totalReturned =
-Number(returnResult.rows[0].total_returned);
+        WHERE shop_id=$1
 
-const trayDue =
-totalSent-totalReturned;
+        AND transaction_type='RETURN'
 
-let status;
-let status_color;
+        AND DATE(created_at)<CURRENT_DATE
+        `,
+        [shopId]
+      );
 
-if(trayDue===0){
+    // ==========================
+    // TODAY SENT
+    // ==========================
 
-    status="ALL TRAYS RETURNED";
+    const todaySentResult =
+      await pool.query(
+        `
+        SELECT
+        COALESCE(SUM(tray_count),0)
+        AS today_sent
 
-    status_color="green";
+        FROM shop_tray_transactions
 
-}
-else{
+        WHERE shop_id=$1
 
-    status=`RETURN ${trayDue} TRAYS`;
+        AND transaction_type='SENT'
 
-    status_color="red";
+        AND DATE(created_at)=CURRENT_DATE
+        `,
+        [shopId]
+      );
 
-}
+    // ==========================
+    // TODAY RETURNED
+    // ==========================
 
-res.json({
+    const todayReturnResult =
+      await pool.query(
+        `
+        SELECT
+        COALESCE(SUM(tray_count),0)
+        AS today_return
 
-    shop_id:
-    shopResult.rows[0].id,
+        FROM shop_tray_transactions
 
-    shop_name:
-    shopResult.rows[0].shop_name,
+        WHERE shop_id=$1
 
-    total_sent:
-    totalSent,
+        AND transaction_type='RETURN'
 
-    total_returned:
-    totalReturned,
+        AND DATE(created_at)=CURRENT_DATE
+        `,
+        [shopId]
+      );
 
-    tray_due:
-    trayDue,
+    const previousPending =
 
-    status,
+      Number(previousSentResult.rows[0].previous_sent)
 
-    status_color
+      -
 
-});
+      Number(previousReturnResult.rows[0].previous_return);
+
+    const todaySent =
+
+      Number(todaySentResult.rows[0].today_sent);
+
+    const todayReturned =
+
+      Number(todayReturnResult.rows[0].today_return);
+
+    const currentPending =
+
+      previousPending +
+
+      todaySent -
+
+      todayReturned;
+
+    let status;
+
+    let status_color;
+
+    if(currentPending===0){
+
+      status="ALL TRAYS RETURNED";
+
+      status_color="green";
 
     }
-    catch(error){
 
-        console.error(error);
+    else{
 
-        res.status(500).json({
-            error:error.message
-        });
+      status=`COLLECT ${currentPending} TRAYS`;
+
+      status_color="red";
 
     }
+
+    res.json({
+
+      shop_id:
+      shopResult.rows[0].id,
+
+      shop_name:
+      shopResult.rows[0].shop_name,
+
+      previous_pending:
+      previousPending,
+
+      today_sent:
+      todaySent,
+
+      today_returned:
+      todayReturned,
+
+      current_pending:
+      currentPending,
+
+      status,
+
+      status_color
+
+    });
+
+  }
+
+  catch(error){
+
+    console.error(error);
+
+    res.status(500).json({
+      error:error.message
+    });
+
+  }
 
 };
 

@@ -299,72 +299,113 @@ const deleteRetailerTray = async(req,res) => {
   }
 };
 
-const getRetailerTraySummary = async(req,res) => {
-  try{
-    //total_received
-    const receiveResult = await pool.query(
-      `select coalesce(SUM(tray_count),0) as total_receive from retailer_tray_transactions
-      where transaction_type='RECEIVED'`
-    );
-    //total_returned
-    const returnResult = await pool.query(
-      `select coalesce(SUM(tray_count),0) as total_return from retailer_tray_transactions
-      where transaction_type ='RETURN'`
-    );
+const getRetailerTraySummary = async (req, res) => {
+  try {
 
-    //get the receive , return to calculate the pending 
+    // ==========================
+    // PREVIOUS RECEIVED
+    // ==========================
+    const previousReceiveResult = await pool.query(`
+      SELECT COALESCE(SUM(tray_count),0) AS previous_receive
+      FROM retailer_tray_transactions
+      WHERE transaction_type='RECEIVED'
+      AND DATE(transaction_time) < CURRENT_DATE
+    `);
 
-    const totalReceive = Number(receiveResult.rows[0].total_receive);
+    // ==========================
+    // PREVIOUS RETURNED
+    // ==========================
+    const previousReturnResult = await pool.query(`
+      SELECT COALESCE(SUM(tray_count),0) AS previous_return
+      FROM retailer_tray_transactions
+      WHERE transaction_type='RETURN'
+      AND DATE(transaction_time) < CURRENT_DATE
+    `);
 
-    const totalReturn = Number(returnResult.rows[0].total_return);
+    // ==========================
+    // TODAY RECEIVED
+    // ==========================
+    const todayReceiveResult = await pool.query(`
+      SELECT COALESCE(SUM(tray_count),0) AS today_receive
+      FROM retailer_tray_transactions
+      WHERE transaction_type='RECEIVED'
+      AND DATE(transaction_time)=CURRENT_DATE
+    `);
 
-    const trayDue = totalReceive - totalReturn;
+    // ==========================
+    // TODAY RETURNED
+    // ==========================
+    const todayReturnResult = await pool.query(`
+      SELECT COALESCE(SUM(tray_count),0) AS today_return
+      FROM retailer_tray_transactions
+      WHERE transaction_type='RETURN'
+      AND DATE(transaction_time)=CURRENT_DATE
+    `);
 
-    //for status 
+    const previousPending =
+      Number(previousReceiveResult.rows[0].previous_receive)
+      -
+      Number(previousReturnResult.rows[0].previous_return);
+
+    const todayReceived =
+      Number(todayReceiveResult.rows[0].today_receive);
+
+    const todayReturned =
+      Number(todayReturnResult.rows[0].today_return);
+
+    const currentPending =
+      previousPending +
+      todayReceived -
+      todayReturned;
+
     let status;
     let status_color;
 
-    if(trayDue===0){
+    if(currentPending===0){
 
-    status="ALL TRAYS RETURNED";
+      status="ALL TRAYS RETURNED";
 
-    status_color="green";
+      status_color="green";
 
-}
-else{
+    }
+    else{
 
-    status=`RETURN ${trayDue} TRAYS`;
+      status=`RETURN ${currentPending} TRAYS`;
 
-    status_color="red";
+      status_color="red";
 
-}
+    }
 
-res.json({
-    total_received:
-    totalReceive,
+    res.json({
 
-    total_returned:
-    totalReturn,
+      previous_pending:
+        previousPending,
 
-    tray_due:
-    trayDue,
+      today_received:
+        todayReceived,
 
-    status,
+      today_returned:
+        todayReturned,
 
-    status_color
-});
+      current_pending:
+        currentPending,
 
+      status,
+
+      status_color
+
+    });
 
   }
-
   catch(error){
+
     console.error(error);
+
     res.status(500).json({
       error:error.message
     });
 
   }
-
 };
 
 module.exports = {

@@ -8,6 +8,8 @@ const retailerPurchaseRoutes =require("./routes/retailerPurchases");
 const retailerTrayRoutes =require("./routes/retailerTray");
 const shopTrayRoutes =require("./routes/shopTray");
 const dashboardRoutes =require("./routes/dashboard");
+const stockSummaryRoutes =require("./routes/stockSummary");
+
 
 const app = express();
 
@@ -20,6 +22,7 @@ app.use("/",retailerPurchaseRoutes);
 app.use("/", retailerTrayRoutes);
 app.use("/", shopTrayRoutes);
 app.use("/",dashboardRoutes);
+app.use("/stock-summary",stockSummaryRoutes);
 app.get("/", (req, res) => {
   res.send("Egg Mart Backend Running 🚀");
 });
