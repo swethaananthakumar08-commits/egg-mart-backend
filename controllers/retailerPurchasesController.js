@@ -31,9 +31,6 @@ const createRetailerPurchase = async (req, res) => {
   let client;
   try {
 
-    client = await pool.connect();
-    await client.query("BEGIN");
-
     const {
       tray_count,
       rate_per_tray
@@ -44,6 +41,10 @@ const createRetailerPurchase = async (req, res) => {
         error: "tray_count and rate_per_tray are required"
       });
     }
+
+    client = await pool.connect();
+    await client.query("BEGIN");
+
 
     const total_amount =
       tray_count * rate_per_tray;
